@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 #
-# 停止 Nacos 验证环境中的应用（端口配置从 config.env 读取，与 start-all.sh 保持一致）
+# 停止本项目的应用（provider + demo）。
+# 不涉及 Nacos 服务端 —— 它是外部依赖，本项目不负责启停。
 #
-#   ./stop-all.sh               只停 provider 和 demo
-#   ./stop-all.sh --with-nacos  连 Nacos 服务端一起停
+#   ./stop-all.sh
 #
 set -uo pipefail
 
@@ -16,7 +16,7 @@ export JAVA_HOME
 port_in_use() { ( exec 3<>"/dev/tcp/127.0.0.1/$1" ) 2>/dev/null; }
 
 # JVM 收到 TERM 后要优雅停机（注销 Nacos 注册、关闭连接池），端口不会立刻释放，
-# 所以这里轮询等待，而不是固定 sleep。
+# 所以轮询等待而不是固定 sleep。
 wait_port_free() {
   local port=$1 timeout=${2:-40} i
   for ((i = 0; i < timeout; i++)); do
@@ -52,24 +52,14 @@ if [[ "$stopped" == 1 ]]; then
   done
 fi
 
-if [[ "${1:-}" == "--with-nacos" ]]; then
-  echo "  停止 Nacos ..."
-  bash "$NACOS_HOME/bin/shutdown.sh" > /dev/null 2>&1 || true
-  if wait_port_free "${NACOS_SERVER_ADDR##*:}" 60; then
-    echo "    Nacos 已停止"
-  else
-    echo "    Nacos 端口仍被占用"
-  fi
-fi
-
 echo
-echo "仍在监听的端口:"
+echo "本项目端口状态:"
 busy=0
-for p in "$DEMO_PORT" "${PORTS[@]}" "${NACOS_SERVER_ADDR##*:}" "$NACOS_CONSOLE_PORT"; do
+for p in "$DEMO_PORT" "${PORTS[@]}"; do
   if port_in_use "$p"; then
-    echo "  :$p"
+    echo "  :$p 仍在监听"
     busy=1
   fi
 done
-[[ "$busy" == 0 ]] && echo "  （无，已全部释放）"
+[[ "$busy" == 0 ]] && echo "  （已全部释放）"
 exit 0

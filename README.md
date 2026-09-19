@@ -13,7 +13,7 @@
 
 ```
                         ┌────────────────────────────┐
-                        │        Nacos 服务端         │
+                        │   Nacos 服务端（外部依赖）    │
    注册 / 订阅 ────────▶ │  :8848  HTTP API            │ ◀──────── 注册 / 订阅
                         │  :8081  控制台 UI            │
                         │  :9848 / :9849  gRPC        │
@@ -56,15 +56,42 @@ nacos-demo/
 
 ## 端口占用
 
-以下是 `config.env` 里的默认值，**都可以改**。
+**本项目应用的端口**（默认值在 `config.env` 里，都可以改）：
 
 | 端口 | 归属 | 说明 |
 |---|---|---|
 | 8080 | demo | 消费者 / 配置中心示例 |
-| 8081 | Nacos | 控制台 UI（Nacos 3.x 默认 8080，已改到 8081 避让） |
 | 8082 / 8083 | provider | 两个实例，用于观察负载均衡 |
-| 8848 | Nacos | 主 HTTP API |
-| 9848 / 9849 | Nacos | gRPC 长连接（固定等于 8848 + 1000 / +1001） |
+
+**Nacos 服务端的端口**（外部依赖，本项目不管理）：
+
+| 端口 | 说明 |
+|---|---|
+| 8848 | 主 HTTP API |
+| 9848 / 9849 | gRPC 长连接（固定等于 8848 + 1000 / +1001） |
+| 8080 或 8081 | 控制台 UI。Nacos 3.x 默认 8080，与 demo 冲突，需要自行避让 |
+
+## 前置条件：Nacos 服务端
+
+**本项目只包含 Nacos 客户端，不包含、也不负责启动 Nacos 服务端。**
+
+开始前请先准备好一个可用的 Nacos 服务端，并把地址填到 `config.env` 的 `NACOS_SERVER_ADDR`
+（默认 `127.0.0.1:8848`）。`start-all.sh` 启动前会检查该地址是否可达，连不上会直接报错退出，
+不会尝试去把它拉起来。
+
+本地临时起一个 Nacos 的两种常见方式：
+
+```bash
+# 方式一：官方发行包，standalone 模式（内嵌 Derby，不需要额外数据库）
+./bin/startup.sh -m standalone
+
+# 方式二：Docker
+docker run -d --name nacos -p 8848:8848 -p 9848:9848 -p 8081:8080 \
+  -e MODE=standalone nacos/nacos-server:v3.2.4
+```
+
+> Nacos 3.x 默认**关闭**开源控制台，且控制台默认占用 8080（与 demo 冲突）。
+> 这两点怎么处理见下面的「踩坑记录」第 3 条。
 
 ## 快速开始
 
@@ -72,19 +99,16 @@ nacos-demo/
 # 1. 构建（在 nacos-demo 目录下，会一次构建两个模块）
 mvn clean package -DskipTests
 
-# 2. 一键启动 Nacos + 两个 provider + demo
+# 2. 启动 provider 和 demo（前提：Nacos 服务端已在运行）
 ./start-all.sh
 
-# 3. 一键停止（加 --with-nacos 连 Nacos 一起停）
+# 3. 停止本项目的应用
 ./stop-all.sh
 ```
 
 也可以手动逐个启动：
 
 ```bash
-# Nacos（standalone 模式，内嵌 Derby，不需要额外装数据库）
-~/.local/lib/nacos/bin/startup.sh -m standalone
-
 # provider，想开几个实例就改端口开几个
 java -jar provider/target/provider-1.0.0.jar --server.port=8082
 java -jar provider/target/provider-1.0.0.jar --server.port=8083
@@ -93,7 +117,7 @@ java -jar provider/target/provider-1.0.0.jar --server.port=8083
 java -jar demo/target/demo-1.0.0.jar
 ```
 
-Nacos 控制台：<http://localhost:8081/next/>，账号 `nacos` / `nacos`
+Nacos 控制台地址为 `http://<Nacos 主机>:<控制台端口>/next/`，账号见 `config.env`。
 
 ## 配置端口（config.env）
 
@@ -108,8 +132,7 @@ Nacos 控制台：<http://localhost:8081/next/>，账号 `nacos` / `nacos`
 | `NACOS_NAMESPACE` | `public` | 命名空间 |
 | `NACOS_USERNAME` / `NACOS_PASSWORD` | `nacos` / `nacos` | 账号密码 |
 | `NACOS_CONSOLE_PORT` | `8081` | 仅用于打印提示 |
-| `NACOS_HOME` | `~/.local/lib/nacos` | Nacos 安装目录 |
-| `JAVA_HOME` | `~/.local/lib/jdk` | JDK 目录 |
+| `JAVA_HOME` | 环境变量或 `~/.local/lib/jdk` | JDK 目录 |
 
 也可以不改文件，用环境变量临时覆盖：
 
@@ -180,10 +203,10 @@ spring.config.import=optional:nacos:demo.yaml?group=DEFAULT_GROUP&refreshEnabled
 | Spring Boot | 4.0.8 | 被 Spring Cloud 2025.1.3 锁定，不能随意升到 4.1 |
 | Spring Cloud | 2025.1.3 | 其 POM 中声明 `<spring-boot.version>4.0.8</spring-boot.version>` |
 | Spring Cloud Alibaba | 2025.1.0.0 | |
-| nacos-client | 3.1.1 | SCA 自带，与服务端同大版本 |
-| Nacos 服务端 | 3.2.4 | 装在 `~/.local/lib/nacos` |
-| JDK | 21.0.12.1 | 装在 `~/.local/lib/jdk` |
-| Maven | 3.9.16 | 已配置阿里云镜像 `~/.m2/settings.xml` |
+| nacos-client | 3.1.1 | 本项目引入的客户端，版本由 SCA 决定 |
+| Nacos 服务端 | 3.x | **外部依赖，本项目未包含**（实测兼容 3.2.4） |
+| JDK | 21 | 需要 17 及以上 |
+| Maven | 3.9+ | |
 
 > 注意：目前还没有对齐 Spring Boot 4.1 的 Spring Cloud 发布，所以 Boot 锁在 4.0.8。
 > 升级 Boot 前务必先确认 Spring Cloud 的配套版本。
@@ -191,6 +214,7 @@ spring.config.import=optional:nacos:demo.yaml?group=DEFAULT_GROUP&refreshEnabled
 ## 踩坑记录
 
 这些都是实际踩到并已规避的，改动前建议先看一遍。
+其中**第 3、4 条属于 Nacos 服务端侧**，跟客户端项目本身无关，但会影响你能否连上、能否用控制台。
 
 **1. 命名空间必须显式写 `public`**
 Nacos 3.x 的默认命名空间 id 是字面量字符串 `public`（不是 2.x 时代的空字符串）。
@@ -255,10 +279,8 @@ spring.cloud.loadbalancer.retry.retry-on-all-operations=true
 | 路径 | 内容 |
 |---|---|
 | `./logs/` | 各应用（demo / provider）的启动日志 |
-| `~/.local/lib/nacos/logs/` | Nacos 服务端日志，`startup.log` 是启动日志 |
 | `~/logs/nacos/` | nacos-client 客户端日志 |
 | `~/nacos/` | nacos-client 的**本地快照缓存**，分 `config/` 和 `naming/` |
-| `~/.local/lib/nacos/data/` | Nacos 服务端数据（内嵌 Derby） |
 
 `~/nacos/` 那两份快照值得知道：它保存了最近一次拉到的配置和实例列表，
 所以**即使 Nacos 服务端挂了，应用仍能用快照启动**，不会直接起不来。
@@ -272,9 +294,6 @@ PROVIDER_PORTS="8082 8083 8084" ./start-all.sh
 # 看某个应用日志
 tail -f logs/demo.log
 
-# 改完配置后重启全部应用（Nacos 会跳过，不会重开）
+# 改完配置后重启全部应用
 ./stop-all.sh && ./start-all.sh
-
-# 连 Nacos 一起停
-./stop-all.sh --with-nacos
 ```
